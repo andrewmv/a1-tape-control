@@ -6,15 +6,17 @@
 
 // Arduino pin configuration
 const int PIN_A1_READ = 2;
-const int EXT_INT_A1 = 0;
+const int EXT_INT_A1 = 1;
 const int PIN_CATHODE_A = 5;
 const int PIN_CATHODE_B = 6;
 // R, G, B, W
 const int LED_PINS[] = {9, 10, 11, 3};
 
+const int STATUS_LED = 13;
+
 // LED Configuration - RGBW
-const int LED_PLAY[] = {0, 0, 0, 0};
 const int LED_PAUSE[] = {255, 255, 255, 255};
+const int LED_PLAY[] = {0, 0, 0, 0};
 
 // Tape deck command configuration
 const byte ADDR_TAPE = 0xac;
@@ -42,21 +44,24 @@ const int TS_STOPPED = 1;
 const int LED_FADE_STEP = 8;
 
 // pulse width timings in microseconds
-const int PW_INIT = 2300;
-const int PW_ONE = 1100;
-const int PW_ZERO = 500;
+const int PW_INIT = 2200;
+const int PW_ONE = 1000;
+const int PW_ZERO = 400;
 
-int state;
-int bitcount;
-unsigned long pulse_start;
-byte data_byte;
-byte address;
-byte command;
-int tape_a_target;
-int tape_b_target;
-int tape_a_state;
-int tape_b_state;
-int command_queue;
+volatile int state;
+volatile int bitcount;
+volatile unsigned long pulse_start;
+volatile byte data_byte;
+volatile byte address;
+volatile byte command;
+volatile int tape_a_target;
+volatile int tape_b_target;
+volatile int tape_a_state;
+volatile int tape_b_state;
+volatile int command_queue;
+
+// DEBUG
+volatile unsigned long last_init_pulse;
 
 void setup() {
 	Serial.begin(9600);
@@ -71,20 +76,33 @@ void setup() {
 	tape_a_target = 0;
 	tape_b_target = 0;
 	command_queue = 0;
+	last_init_pulse = 0;
 	pinMode(PIN_A1_READ, INPUT);
 	for (int i = 0; i < 4; i++) {
 		pinMode(LED_PINS[i], OUTPUT);
 		digitalWrite(LED_PINS[i], LOW);
 	}
-	attachInterrupt(EXT_INT_A1, falling_edge, FALLING);
-	attachInterrupt(EXT_INT_A1, rising_edge, RISING);
+	pinMode(STATUS_LED, OUTPUT);
+	digitalWrite(STATUS_LED, LOW);
+	// attachInterrupt(digitalPinToInterrupt(PIN_A1_READ), falling_edge, FALLING);
+	// attachInterrupt(digitalPinToInterrupt(PIN_A1_READ), rising_edge, RISING);
+	attachInterrupt(digitalPinToInterrupt(PIN_A1_READ), edge_change, CHANGE);
 	Serial.println("Ready");
 }
 
 void loop() {
-	delay(500);
+	delay(1000);
+	// Serial.print("Machine state: ");
+	// Serial.println(state, HEX);
+ //    Serial.print("bits in queue: ");
+ //    Serial.println(bitcount);
 	while (command_queue > 0) {
 		Serial.println("Processing new command");
+		Serial.print("Last init width: ");
+		Serial.print(last_init_pulse);
+		Serial.println("us");
+        // Serial.print("pulse_start: ");
+        // Serial.println(pulse_start);
 		parse_commands();
 	}
 	apply_states();
@@ -93,17 +111,17 @@ void loop() {
 void apply_states() {
 	// Set cathode states
 	if (tape_a_state == TS_PLAYING) {
-		digitalWrite(PIN_CATHODE_A, HIGH);
-	} else {
 		digitalWrite(PIN_CATHODE_A, LOW);
+	} else {
+		digitalWrite(PIN_CATHODE_A, HIGH);
 	}
 	if (tape_b_state == TS_PLAYING) {
-		digitalWrite(PIN_CATHODE_B, HIGH);
-	} else {
 		digitalWrite(PIN_CATHODE_B, LOW);
+	} else {
+		digitalWrite(PIN_CATHODE_B, HIGH);
 	}
 
-	if (tape_a_state | tape_b_state == TS_PLAYING) {
+	if ((tape_a_state == TS_PLAYING) || (tape_b_state == TS_PLAYING)) {
 		for (int i = 0; i < 4; i++) {
 			analogWrite(LED_PINS[i], LED_PLAY[i]);
 		}
@@ -126,25 +144,36 @@ void apply_states() {
 
 void parse_commands() {
 	if (address == ADDR_TAPE) {
+		Serial.println("Found command from known device address");
 		switch (command) {
 			case CMD_TAPE_A_PLAY:
-				tape_a_target = TS_PLAYING;
+				Serial.println("Tape A Playing");
+				tape_a_state = TS_PLAYING;
 				break;
 			case CMD_TAPE_B_PLAY:
-				tape_b_target = TS_PLAYING;
+				Serial.println("Tape B Playing");
+				tape_b_state = TS_PLAYING;
 				break;
 			case CMD_TAPE_A_STOP:
-				tape_a_target = TS_STOPPED;
+				Serial.println("Tape A Stopped");
+				tape_a_state = TS_STOPPED;
 				break;
 			case CMD_TAPE_B_STOP:
-				tape_b_target = TS_STOPPED;
+				Serial.println("Tape B Stopped");
+				tape_b_state = TS_STOPPED;
 				break;
+			default:
+				Serial.print("Ignoring unknown command on bus: ");
+                                Serial.println(command, HEX);
 		}
+	} else {
+		Serial.print("Ignoring unknown address on bus: ");
+                Serial.println(address, HEX);
 	}
 	command_queue--;
 }
 
-int handle_bit(long pulse_width) {
+int handle_bit(unsigned long pulse_width) {
 	int rc;
 	if (pulse_width > PW_INIT) {
 		// Pulse bit in INIT/SYNC
@@ -159,15 +188,26 @@ int handle_bit(long pulse_width) {
 	return rc;
 }
 
-void falling_edge() {
-	pulse_start = micros();
+// The Arduino bootloader doesn't seem to allow R and F interrupts
+// to both be bound to the same pin, because fuck you
+void edge_change() {
+	unsigned long ts = micros();
+	if (digitalRead(PIN_A1_READ) == HIGH) {
+		rising_edge(ts);
+	} else {
+		falling_edge(ts);
+	}
+}
+
+void falling_edge(unsigned long ts) {
+	pulse_start = ts;
 	if (state == STATE_NO_FALL) {
 		state = STATE_FIND_INIT;
 	}
 }
 
-void rising_edge() {
-	unsigned long pulse_end = micros();
+void rising_edge(unsigned long ts) {
+	unsigned long pulse_end = ts;
 
 	// If we haven't seen our first falling edge, do nothing
 	if (state == STATE_NO_FALL) {
@@ -189,6 +229,11 @@ void rising_edge() {
 	if (bit == -1) {
 		// Reset state machine on INIT regardless of previous state
 		state = STATE_READ_ADDR;
+		bitcount = 0;
+		data_byte = 0;
+		address = 0;
+		command = 0;
+		last_init_pulse = pulse_width;
 	} else if (state == STATE_FIND_INIT) {
 		// Ignore bits not prefixed by an INIT
 		return;
@@ -196,14 +241,16 @@ void rising_edge() {
 		data_byte = data_byte | (bit << (7 - bitcount));
 		bitcount++;
 		if (bitcount >= 8) {
-			bitcount = 0;
 			if (state == STATE_READ_ADDR) {
 				address = data_byte;
+				data_byte = 0;
 				state = STATE_READ_CMD;
 			} else {
 				command = data_byte;
 				command_queue++;
 			}
+			bitcount = 0;
+			data_byte = 0;
 		}
 	}
 }
