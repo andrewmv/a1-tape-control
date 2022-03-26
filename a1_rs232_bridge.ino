@@ -27,7 +27,7 @@ const int CMD_SEND_DATA = 3;
 const int CMD_SCAN_DATA = 4;
 
 int command = 0;		// Current user command
-char inputData[8];		// Input prompt data
+char inputData[16];		// Input prompt data
 int inputPos = 0;		// Input prompt index pos
 byte workingAddr = 'a';	// Current working address
 byte dataPacket[8];		// Data to send to A1
@@ -205,8 +205,11 @@ void loop() {
 	    		Serial.println(workingAddr, HEX);
 	    		prompt();
 	    	} else if (command == CMD_SEND_DATA) {
-	    		dataSize = 1;	// Only handling single byte commands for now
-		    	dataPacket[0] = strToByte(inputData[1], inputData[2]);
+	    		dataSize = ceil((inputPos - 1) / 2);
+	    		for (int i = 0; i < dataSize; i++) {
+	    			int offset = (2 * i) + 1;
+			    	dataPacket[i] = strToByte(inputData[offset], inputData[offset+1]);
+	    		}
 		    	sendA1Packet(workingAddr, dataPacket, dataSize);
 	    		prompt();
 		    } else if (command == CMD_SCAN_ADDR) {
@@ -216,7 +219,7 @@ void loop() {
 		    	Serial.println("\nNot implemented");
 	    		prompt();
 		    } 
-	    } else if (inputPos > 4) {
+	    } else if (inputPos > 10) {
 	    	Serial.println("\nError: command too long");
 	    	badCommand();
 	    	inputPos = 0;
