@@ -107,9 +107,6 @@ void pulseDataLine(int time) {
 	delayMicroseconds(PW_GAP);
 }
 
-// String format helpers from:
-// https://forum.arduino.cc/t/hex-string-to-byte-array/563827/4
-
 byte nibble(char c) {
 	if (c >= '0' && c <= '9')
 		return c - '0';
@@ -124,50 +121,6 @@ byte nibble(char c) {
 	Serial.print(c, HEX);
 	return 0;  // Not a valid hexadecimal character
 }
-
-// void hexCharacterStringToBytes(byte *byteArray, const char *hexString, int strLength) {
-//   bool oddLength = strLength & 1;
-
-//   byte currentByte = 0;
-//   byte byteIndex = 0;
-
-//   for (byte charIndex = 0; charIndex < strLength; charIndex++) {
-//     bool oddCharIndex = charIndex & 1;
-
-//     if (oddLength) {
-//       // If the length is odd
-//       if (oddCharIndex) {
-//         // odd characters go in high nibble
-//         currentByte = nibble(hexString[charIndex]) << 4;
-//       } else {
-//         // Even characters go into low nibble
-//         currentByte |= nibble(hexString[charIndex]);
-//         byteArray[byteIndex++] = currentByte;
-//         currentByte = 0;
-//       }
-//     } else {
-//       // If the length is even
-//       if (!oddCharIndex) {
-//         // Odd characters go into the high nibble
-//         currentByte = nibble(hexString[charIndex]) << 4;
-//       } else {
-//         // Odd characters go into low nibble
-//         currentByte |= nibble(hexString[charIndex]);
-//         byteArray[byteIndex++] = currentByte;
-//         currentByte = 0;
-//       }
-//     }
-//   }
-// }
-
-// void dumpByteArray(const byte * byteArray, const byte arraySize) {
-// 	for (int i = 0; i < arraySize; i++) {
-// 		Serial.print("0x");
-// 		if (byteArray[i] < 0x10)
-// 			Serial.print("0");
-// 		Serial.print(byteArray[i], HEX);
-// 	}
-// }
 
 byte strToByte(char highNibble, char lowNibble) {
 	return (nibble(highNibble) << 4) + nibble(lowNibble);
